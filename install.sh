@@ -20,7 +20,8 @@ log_error() {
 }
 
 # 检查是否是 root 用户
-if [ "$EUID" -ne 0 ]; then 
+if [ "$EUID" -ne 0 ] 
+then
     log_error "请使用 root 用户运行此脚本"
     exit 1
 fi
@@ -77,10 +78,11 @@ get_user_input() {
     read -p "请输入你的钱包地址: " WALLET_ADDRESS
     
     # 验证输入
-    if [ -z "$EMAIL" ] || [ -z "$WALLET_ADDRESS" ]; then
+    if [ -z "$EMAIL" ] || [ -z "$WALLET_ADDRESS" ]
+    then
         log_error "邮箱和钱包地址不能为空"
         exit 1
-    }
+    fi
     
     # 保存配置
     mkdir -p /root/nexus
@@ -103,10 +105,11 @@ register_account() {
         -H "Content-Type: application/json" \
         -d @/root/nexus/config.json)
     
-    if [ "$(echo $RESPONSE | jq -r '.success')" != "true" ]; then
+    if [ "$(echo $RESPONSE | jq -r '.success')" != "true" ]
+    then
         log_error "注册失败: $(echo $RESPONSE | jq -r '.message')"
         exit 1
-    }
+    fi
     
     log_info "注册请求已发送，请检查邮箱获取验证码"
     
@@ -120,10 +123,11 @@ register_account() {
             \"code\": \"$VERIFICATION_CODE\"
         }")
     
-    if [ "$(echo $RESPONSE | jq -r '.success')" != "true" ]; then
+    if [ "$(echo $RESPONSE | jq -r '.success')" != "true" ]
+    then
         log_error "验证失败: $(echo $RESPONSE | jq -r '.message')"
         exit 1
-    }
+    fi
     
     # 保存访问令牌
     echo $RESPONSE | jq -r '.access_token' > /root/nexus/.access_token
@@ -132,10 +136,11 @@ register_account() {
 
 # 获取并保存 Prover ID
 get_prover_id() {
-    if [ ! -f "/root/nexus/.access_token" ]; then
+    if [ ! -f "/root/nexus/.access_token" ]
+    then
         log_error "访问令牌不存在！"
         exit 1
-    }
+    fi
     
     ACCESS_TOKEN=$(cat /root/nexus/.access_token)
     
@@ -144,10 +149,11 @@ get_prover_id() {
     
     PROVER_ID=$(echo $RESPONSE | jq -r '.prover_id')
     
-    if [ -z "$PROVER_ID" ]; then
+    if [ -z "$PROVER_ID" ]
+    then
         log_error "获取 Prover ID 失败"
         exit 1
-    }
+    fi
     
     # 保存 Prover ID
     echo "PROVER_ID=$PROVER_ID" > /root/nexus/.env
