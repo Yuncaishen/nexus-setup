@@ -104,12 +104,12 @@ install_ws_dependency() {
 # 创建 WebSocket 客户端
 create_ws_client() {
     log_info "正在创建 WebSocket 客户端..."
-    cat > /root/nexus/client.js << EOF
+    cat > /root/nexus/client.js << 'EOF'
 const WebSocket = require('ws');
 const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('/root/nexus/config.json', 'utf8'));
-const ws = new WebSocket('wss://beta.orchestrator.nexus.xyz/ws');
+const ws = new WebSocket('wss://orchestrator.nexus.xyz/ws');
 
 ws.on('open', function open() {
     console.log('Connected to Nexus Orchestrator');
@@ -123,13 +123,17 @@ ws.on('open', function open() {
 });
 
 ws.on('message', function message(data) {
-    const msg = JSON.parse(data);
-    console.log('Received:', msg);
-    
-    if (msg.type === 'prover_id') {
-        fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${msg.data.prover_id}\n`);
-        console.log('Saved Prover ID:', msg.data.prover_id);
-        process.exit(0);
+    try {
+        const msg = JSON.parse(data.toString());
+        console.log('Received:', msg);
+        
+        if (msg.type === 'prover_id' && msg.data && msg.data.prover_id) {
+            fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${msg.data.prover_id}\n`);
+            console.log('Saved Prover ID:', msg.data.prover_id);
+            process.exit(0);
+        }
+    } catch (err) {
+        console.error('Error parsing message:', err);
     }
 });
 
