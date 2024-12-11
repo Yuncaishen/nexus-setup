@@ -100,135 +100,70 @@ install_https_dependency() {
     npm init -y
 }
 
-# 创建注册客户端
+# 创建 WebSocket 客户端
 create_client() {
-    log_info "正在创建注册客户端..."
+    log_info "正在创建 WebSocket 客户端..."
     cat > /root/nexus/client.js << 'EOF'
-const https = require('https');
+const WebSocket = require('ws');
 const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('/root/nexus/config.json', 'utf8'));
 
-function makeRequest(options, data = null) {
-    return new Promise((resolve, reject) => {
-        console.log(`Making request to: ${options.hostname}${options.path}`);
-        const req = https.request(options, (res) => {
-            let responseData = '';
-            
-            res.on('data', (chunk) => {
-                responseData += chunk;
-            });
-            
-            res.on('end', () => {
-                console.log('Response status:', res.statusCode);
-                console.log('Response headers:', res.headers);
-                console.log('Raw response:', responseData);
-                
-                try {
-                    const jsonResponse = JSON.parse(responseData);
-                    resolve(jsonResponse);
-                } catch (error) {
-                    reject(new Error('Invalid JSON response'));
-                }
-            });
-        });
-        
-        req.on('error', (error) => {
-            console.error('Request error:', error);
-            reject(error);
-        });
-        
-        if (data) {
-            console.log('Sending data:', data);
-            req.write(JSON.stringify(data));
-        }
-        req.end();
-    });
-}
+// 从错误响应中可以看到正确的 WebSocket 地址
+const ws = new WebSocket('wss://beta.orchestrator.nexus.xyz', {
+    headers: {
+        'Origin': 'https://beta.nexus.xyz',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+});
 
-async function register() {
-    try {
-        // 注册
-        console.log('Registering...');
-        const registerOptions = {
-            hostname: 'beta.nexus.xyz',
-            port: 443,
-            path: '/api/register',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            },
-            rejectUnauthorized: false
-        };
-        
-        const registerData = {
+ws.on('open', function open() {
+    console.log('Connected to WebSocket');
+    // 发送注册消息
+    ws.send(JSON.stringify({
+        type: 'register',
+        data: {
             email: config.email,
             wallet_address: config.wallet_address
-        };
-        
-        const registerResponse = await makeRequest(registerOptions, registerData);
-        console.log('Register response:', registerResponse);
-        
-        if (!registerResponse.success) {
-            throw new Error('Registration failed: ' + (registerResponse.message || 'Unknown error'));
         }
-        
-        // 等待验证码
-        const code = await new Promise((resolve) => {
-            const readline = require('readline').createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-            
-            readline.question('Please enter the verification code from your email: ', (code) => {
-                readline.close();
-                resolve(code);
-            });
-        });
-        
-        // 验证
-        console.log('Verifying...');
-        const verifyOptions = {
-            hostname: 'beta.nexus.xyz',
-            port: 443,
-            path: '/api/verify',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            },
-            rejectUnauthorized: false
-        };
-        
-        const verifyData = {
-            email: config.email,
-            code: code
-        };
-        
-        const verifyResponse = await makeRequest(verifyOptions, verifyData);
-        console.log('Verify response:', verifyResponse);
-        
-        if (!verifyResponse.success) {
-            throw new Error('Verification failed: ' + (verifyResponse.message || 'Unknown error'));
-        }
-        
-        // 保存 Prover ID
-        if (verifyResponse.prover_id) {
-            fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${verifyResponse.prover_id}\n`);
-            console.log('Saved Prover ID:', verifyResponse.prover_id);
-        }
-        
-        process.exit(0);
-    } catch (error) {
-        console.error('Error:', error.message);
-        process.exit(1);
-    }
-}
+    }));
+});
 
-register();
+ws.on('message', function message(data) {
+    try {
+        const msg = JSON.parse(data.toString());
+        console.log('Received message:', msg);
+        
+        if (msg.type === 'prover_id' && msg.data && msg.data.prover_id) {
+            fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${msg.data.prover_id}\n`);
+            console.log('Successfully saved Prover ID:', msg.data.prover_id);
+            process.exit(0);
+        }
+    } catch (err) {
+        console.error('Error parsing message:', err);
+    }
+});
+
+ws.on('error', function error(err) {
+    console.error('WebSocket error:', err);
+});
+
+ws.on('close', function close(code, reason) {
+    console.log('Connection closed:', code, reason.toString());
+    process.exit(1);
+});
+
+// 30秒后如果还没有收到 prover_id 就退出
+setTimeout(() => {
+    console.log('Timeout: No prover_id received after 30 seconds');
+    process.exit(1);
+}, 30000);
+
+// 保持进程运行
+process.on('SIGINT', () => {
+    ws.close();
+    process.exit();
+});
 EOF
 }
 
