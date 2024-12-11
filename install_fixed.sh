@@ -111,6 +111,7 @@ const config = JSON.parse(fs.readFileSync('/root/nexus/config.json', 'utf8'));
 
 function makeRequest(options, data = null) {
     return new Promise((resolve, reject) => {
+        console.log(`Making request to: ${options.hostname}${options.path}`);
         const req = https.request(options, (res) => {
             let responseData = '';
             
@@ -119,21 +120,26 @@ function makeRequest(options, data = null) {
             });
             
             res.on('end', () => {
+                console.log('Response status:', res.statusCode);
+                console.log('Response headers:', res.headers);
+                console.log('Raw response:', responseData);
+                
                 try {
                     const jsonResponse = JSON.parse(responseData);
                     resolve(jsonResponse);
                 } catch (error) {
-                    console.log('Raw response:', responseData);
                     reject(new Error('Invalid JSON response'));
                 }
             });
         });
         
         req.on('error', (error) => {
+            console.error('Request error:', error);
             reject(error);
         });
         
         if (data) {
+            console.log('Sending data:', data);
             req.write(JSON.stringify(data));
         }
         req.end();
@@ -145,27 +151,28 @@ async function register() {
         // 注册
         console.log('Registering...');
         const registerOptions = {
-            hostname: 'api.nexus.xyz',
+            hostname: 'beta.nexus.xyz',
             port: 443,
-            path: '/register',
+            path: '/api/register',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
             },
             rejectUnauthorized: false
         };
         
         const registerData = {
             email: config.email,
-            address: config.wallet_address
+            wallet_address: config.wallet_address
         };
         
         const registerResponse = await makeRequest(registerOptions, registerData);
         console.log('Register response:', registerResponse);
         
         if (!registerResponse.success) {
-            throw new Error('Registration failed: ' + registerResponse.message);
+            throw new Error('Registration failed: ' + (registerResponse.message || 'Unknown error'));
         }
         
         // 等待验证码
@@ -184,13 +191,14 @@ async function register() {
         // 验证
         console.log('Verifying...');
         const verifyOptions = {
-            hostname: 'api.nexus.xyz',
+            hostname: 'beta.nexus.xyz',
             port: 443,
-            path: '/verify',
+            path: '/api/verify',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
             },
             rejectUnauthorized: false
         };
@@ -204,7 +212,7 @@ async function register() {
         console.log('Verify response:', verifyResponse);
         
         if (!verifyResponse.success) {
-            throw new Error('Verification failed: ' + verifyResponse.message);
+            throw new Error('Verification failed: ' + (verifyResponse.message || 'Unknown error'));
         }
         
         // 保存 Prover ID
