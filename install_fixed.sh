@@ -93,80 +93,140 @@ get_user_input() {
 EOF
 }
 
-# 安装 WebSocket 依赖
-install_ws_dependency() {
-    log_info "正在安装 WebSocket 依赖..."
+# 安装 HTTPS API 依赖
+install_https_dependency() {
+    log_info "正在安装 HTTPS API 依赖..."
     cd /root/nexus
     npm init -y
-    npm install ws
 }
 
-# 创建 WebSocket 客户端
-create_ws_client() {
-    log_info "正在创建 WebSocket 客户端..."
+# 创建注册客户端
+create_client() {
+    log_info "正在创建注册客户端..."
     cat > /root/nexus/client.js << 'EOF'
-const WebSocket = require('ws');
-const fs = require('fs');
 const https = require('https');
+const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('/root/nexus/config.json', 'utf8'));
-const ws = new WebSocket('wss://orchestrator.nexus.xyz/ws', {
-    agent: new https.Agent({
-        rejectUnauthorized: false,
-        secureProtocol: 'TLS_method',
-        ciphers: 'ALL',
-    }),
-    headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-});
 
-ws.on('open', function open() {
-    console.log('Connected to Nexus Orchestrator');
-    ws.send(JSON.stringify({
-        type: 'register',
-        data: {
+function makeRequest(options, data = null) {
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+            let responseData = '';
+            
+            res.on('data', (chunk) => {
+                responseData += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    const jsonResponse = JSON.parse(responseData);
+                    resolve(jsonResponse);
+                } catch (error) {
+                    console.log('Raw response:', responseData);
+                    reject(new Error('Invalid JSON response'));
+                }
+            });
+        });
+        
+        req.on('error', (error) => {
+            reject(error);
+        });
+        
+        if (data) {
+            req.write(JSON.stringify(data));
+        }
+        req.end();
+    });
+}
+
+async function register() {
+    try {
+        // 注册
+        console.log('Registering...');
+        const registerOptions = {
+            hostname: 'api.nexus.xyz',
+            port: 443,
+            path: '/register',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            rejectUnauthorized: false
+        };
+        
+        const registerData = {
             email: config.email,
             address: config.wallet_address
-        }
-    }));
-});
-
-ws.on('message', function message(data) {
-    try {
-        const msg = JSON.parse(data.toString());
-        console.log('Received:', msg);
+        };
         
-        if (msg.type === 'prover_id' && msg.data && msg.data.prover_id) {
-            fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${msg.data.prover_id}\n`);
-            console.log('Saved Prover ID:', msg.data.prover_id);
-            process.exit(0);
+        const registerResponse = await makeRequest(registerOptions, registerData);
+        console.log('Register response:', registerResponse);
+        
+        if (!registerResponse.success) {
+            throw new Error('Registration failed: ' + registerResponse.message);
         }
-    } catch (err) {
-        console.error('Error parsing message:', err);
+        
+        // 等待验证码
+        const code = await new Promise((resolve) => {
+            const readline = require('readline').createInterface({
+                input: process.stdin,
+                output: process.stdout
+            });
+            
+            readline.question('Please enter the verification code from your email: ', (code) => {
+                readline.close();
+                resolve(code);
+            });
+        });
+        
+        // 验证
+        console.log('Verifying...');
+        const verifyOptions = {
+            hostname: 'api.nexus.xyz',
+            port: 443,
+            path: '/verify',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            rejectUnauthorized: false
+        };
+        
+        const verifyData = {
+            email: config.email,
+            code: code
+        };
+        
+        const verifyResponse = await makeRequest(verifyOptions, verifyData);
+        console.log('Verify response:', verifyResponse);
+        
+        if (!verifyResponse.success) {
+            throw new Error('Verification failed: ' + verifyResponse.message);
+        }
+        
+        // 保存 Prover ID
+        if (verifyResponse.prover_id) {
+            fs.writeFileSync('/root/nexus/.env', `PROVER_ID=${verifyResponse.prover_id}\n`);
+            console.log('Saved Prover ID:', verifyResponse.prover_id);
+        }
+        
+        process.exit(0);
+    } catch (error) {
+        console.error('Error:', error.message);
+        process.exit(1);
     }
-});
+}
 
-ws.on('error', function error(err) {
-    console.error('WebSocket error:', err);
-});
-
-ws.on('close', function close(code, reason) {
-    console.log('Connection closed:', code, reason.toString());
-    process.exit(1);
-});
-
-// 添加超时处理
-setTimeout(() => {
-    console.error('Connection timeout after 30 seconds');
-    process.exit(1);
-}, 30000);
+register();
 EOF
 }
 
-# 运行 WebSocket 客户端
-run_ws_client() {
-    log_info "正在运行 WebSocket 客户端..."
+# 运行注册客户端
+run_client() {
+    log_info "正在运行注册客户端..."
     cd /root/nexus
     node client.js
 }
@@ -207,9 +267,9 @@ main() {
     install_nodejs
     setup_system
     get_user_input
-    install_ws_dependency
-    create_ws_client
-    run_ws_client
+    install_https_dependency
+    create_client
+    run_client
     setup_autostart
     
     log_info "安装完成！"
