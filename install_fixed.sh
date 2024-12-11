@@ -107,9 +107,19 @@ create_ws_client() {
     cat > /root/nexus/client.js << 'EOF'
 const WebSocket = require('ws');
 const fs = require('fs');
+const https = require('https');
 
 const config = JSON.parse(fs.readFileSync('/root/nexus/config.json', 'utf8'));
-const ws = new WebSocket('wss://orchestrator.nexus.xyz/ws');
+const ws = new WebSocket('wss://orchestrator.nexus.xyz/ws', {
+    agent: new https.Agent({
+        rejectUnauthorized: false,
+        secureProtocol: 'TLS_method',
+        ciphers: 'ALL',
+    }),
+    headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+});
 
 ws.on('open', function open() {
     console.log('Connected to Nexus Orchestrator');
@@ -139,6 +149,10 @@ ws.on('message', function message(data) {
 
 ws.on('error', function error(err) {
     console.error('WebSocket error:', err);
+});
+
+ws.on('close', function close(code, reason) {
+    console.log('Connection closed:', code, reason.toString());
     process.exit(1);
 });
 
